@@ -826,32 +826,75 @@ def check_form(form):
         row = r_sheet.row(row_index)
         row_values = [cell.value for cell in row]
 
+
+        """
+            
+            If only one transcript in nirvana
+                use it
+            
+
+            elif multiple transcripts in nirvana
+                Connect to mariadb and get tx from hgmd_pro.gene2refseq
+                if HGMD transcripts in multiple transcripts list
+                    use it
+
+                else 
+                    manual selection (or canonical in nirvana?)
+
+            else (no transcripts in nirvana, probably bad gene name):
+                log for manual intervention
+            
+        """
+
         if any(row_values):
             gene_symbol = row_values[gene_symbol_column_index]
-            transcript  = row_values[transcript_column_index]
             
-            gene_tx_check_bool, gene_tx_check_message     = check_nirvana_gene_transcript(gene_symbol, transcript)
-            
-            # If the tx is not in nirvana then we won't have coverage for the region, so don't check for it
-            if gene_tx_check_bool:
-                coverage_check_bool, coverage_check_message   = transcript_coverage(transcript, fancy=False)
+            nirvana_txs = nirvana_transcripts(gene_name)
+
+            if len(nirvana_txs) == 1:
+                transcript = nirvana_txs[0]
+
+            elif len(nirvana_txs) > 1:
+                hgmd_transcript = get_hgmd_transcript(gene+symbol)
+                if hgmd_transcript in nirvana_txs:
+                    transcript = hgmd_transcript
+
             else:
-                coverage_check_bool, coverage_check_message = False, ""
+                transcript = None
+
+                
             
-            g2t_check_bool, g2t_check_message             = check_genes2transcripts(gene_symbol, transcript)
+            if transcript:
+                gene_tx_check_bool, gene_tx_check_message     = check_nirvana_gene_transcript(gene_symbol, transcript)  
 
-            gene_tx_check_result = result_map[gene_tx_check_bool]
-            coverage_check_result = result_map[coverage_check_bool]
-            g2t_check_result = result_map[g2t_check_bool]
 
-            # If missing from g2t and everything else is OK then add it and rerun the check
-            if all([gene_tx_check_bool, coverage_check_bool]) and not g2t_check_bool:
-                added_to_g2t = add_to_genes2transcripts(gene_symbol, transcript)
-                g2t_check_bool, g2t_check_message     = check_genes2transcripts(gene_symbol, transcript)
+                transcript  = row_values[transcript_column_index]
+                
+                gene_tx_check_bool, gene_tx_check_message     = check_nirvana_gene_transcript(gene_symbol, transcript)
+                
+                # If the tx is not in nirvana then we won't have coverage for the region, so don't check for it
+                if gene_tx_check_bool:
+                    coverage_check_bool, coverage_check_message   = transcript_coverage(transcript, fancy=False)
+                else:
+                    coverage_check_bool, coverage_check_message = False, ""
+                
+                g2t_check_bool, g2t_check_message             = check_genes2transcripts(gene_symbol, transcript)
+
+                gene_tx_check_result = result_map[gene_tx_check_bool]
+                coverage_check_result = result_map[coverage_check_bool]
                 g2t_check_result = result_map[g2t_check_bool]
 
-            row_notes = "\n".join([gene_tx_check_message,coverage_check_message,g2t_check_message])
+                # If missing from g2t and everything else is OK then add it and rerun the check
+                if all([gene_tx_check_bool, coverage_check_bool]) and not g2t_check_bool:
+                    added_to_g2t = add_to_genes2transcripts(gene_symbol, transcript)
+                    g2t_check_bool, g2t_check_message     = check_genes2transcripts(gene_symbol, transcript)
+                    g2t_check_result = result_map[g2t_check_bool]
+
+                row_notes = "\n".join([gene_tx_check_message,coverage_check_message,g2t_check_message])
             
+            else:
+                row_notes = "No transcripts found for %s" % gene_symbol
+
             w_sheet.write(row_index, symboltx_check_column_index, gene_tx_check_result)
             w_sheet.write(row_index, coverage_check_column_index, coverage_check_result)
             w_sheet.write(row_index, g2t_check_column_index, g2t_check_result)
