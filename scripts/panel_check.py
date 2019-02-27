@@ -822,42 +822,51 @@ def check_form(form):
     result_map = {True:  "Pass",
                   False: "FAIL"}
 
+    # Iterate through the rows in the form
     for row_index in range(header_row_index+1, nrows-1):
         row = r_sheet.row(row_index)
         row_values = [cell.value for cell in row]
 
-        if any(row_values):  # if populated row in form
+        if any(row_values):  # if a populated row
             
             gene_symbol = row_values[gene_symbol_column_index]
             
+            # Get a list of transcripts available for this gene in the nirvana annotation data
             nirvana_txs = nirvana_transcripts(gene_symbol)
             
             # If only one transcript in nirvana we have no choice - use that one
             if len(nirvana_txs) == 1:
                 transcript = nirvana_txs.keys()[0]
 
-            # If multiple transcripts in nirvana
+            # If multiple transcripts in nirvana the we need to make make a selection
             elif len(nirvana_txs) > 1:
-                hgmd_transcript = get_hgmd_transcript(gene+symbol) # Connect to mariadb and get tx from hgmd_pro.gene2refseq
+
+                # Connect to mariadb and get tx from hgmd_pro.gene2refseq
+                hgmd_transcript = get_hgmd_transcript(gene+symbol) # Func to do
                 
                 # if HGMD transcript is in nirvana transcripts list, use it
                 for nirvana_transcript in nirvana_transcripts:
                     nirvana_transcript_base, nirvana_transcript_version = nirvana_transcript.split(".")
                     
-                    if hgmd_transcript.startswith(nirvana_transcript_base + "."):  # Same tx but may be diff version
+                    # Match before the .version since nirvana and HMD may have the same tx but diff versions
+                    # Use the version in nirvana
+                    if hgmd_transcript.startswith(nirvana_transcript_base + "."):
                         transcript = nirvana_transcript
                         break
+
+                # HGMD not in the nirvana list, so we use nirvana canonical
+                else:
+                    nirvana_canonicals = [tx for tx,info in nirvana_transcripts.items() if info.canonical]
+                    if len(nirvana_canonicals) == 1:
+                        transcript = nirvana_canonicals[0]
                     else:
-                        nirvana_canonicals = [tx for tx,info in nirvana_transcripts.items() if info.canonical]
-                        if len(nirvana_canonicals) == 1:
-                            transcript = nirvana_canonicals[0]
-                        else:
-                            transcript = None
+                        transcript = None
 
             else: # no transcripts in nirvana, probably bad gene name, log for manual intervention
                 transcript = None
                 
-            
+            # Need to review these checks once previous block is working
+            # Esp with regards to setting/changing g2t assignments 
             if transcript:
                 gene_tx_check_bool, gene_tx_check_message     = check_nirvana_gene_transcript(gene_symbol, transcript)  
 
@@ -889,7 +898,8 @@ def check_form(form):
             else:
                 row_notes = "No transcripts found for %s" % gene_symbol
 
-            w_sheet.write(row_index, symboltx_check_column_index, gene_tx_check_result)
+            # Need to write the transcript value here
+            w_sheet.write(row_index, symboltx_check_column_index, gene_tx_check_result) 
             w_sheet.write(row_index, coverage_check_column_index, coverage_check_result)
             w_sheet.write(row_index, g2t_check_column_index, g2t_check_result)
             w_sheet.write(row_index, bix_notes_column_index, row_notes, style)
