@@ -826,42 +826,36 @@ def check_form(form):
         row = r_sheet.row(row_index)
         row_values = [cell.value for cell in row]
 
-
-        """
+        if any(row_values):  # if populated row in form
             
-            If only one transcript in nirvana
-                use it
-            
-
-            elif multiple transcripts in nirvana
-                Connect to mariadb and get tx from hgmd_pro.gene2refseq
-                if HGMD transcripts in multiple transcripts list
-                    use it
-
-                else 
-                    manual selection (or canonical in nirvana?)
-
-            else (no transcripts in nirvana, probably bad gene name):
-                log for manual intervention
-            
-        """
-
-        if any(row_values):
             gene_symbol = row_values[gene_symbol_column_index]
             
-            nirvana_txs = nirvana_transcripts(gene_name)
-
+            nirvana_txs = nirvana_transcripts(gene_symbol)
+            
+            # If only one transcript in nirvana we have no choice - use that one
             if len(nirvana_txs) == 1:
-                transcript = nirvana_txs[0]
+                transcript = nirvana_txs.keys()[0]
 
+            # If multiple transcripts in nirvana
             elif len(nirvana_txs) > 1:
-                hgmd_transcript = get_hgmd_transcript(gene+symbol)
-                if hgmd_transcript in nirvana_txs:
-                    transcript = hgmd_transcript
+                hgmd_transcript = get_hgmd_transcript(gene+symbol) # Connect to mariadb and get tx from hgmd_pro.gene2refseq
+                
+                # if HGMD transcript is in nirvana transcripts list, use it
+                for nirvana_transcript in nirvana_transcripts:
+                    nirvana_transcript_base, nirvana_transcript_version = nirvana_transcript.split(".")
+                    
+                    if hgmd_transcript.startswith(nirvana_transcript_base + "."):  # Same tx but may be diff version
+                        transcript = nirvana_transcript
+                        break
+                    else:
+                        nirvana_canonicals = [tx for tx,info in nirvana_transcripts.items() if info.canonical]
+                        if len(nirvana_canonicals) == 1:
+                            transcript = nirvana_canonicals[0]
+                        else:
+                            transcript = None
 
-            else:
+            else: # no transcripts in nirvana, probably bad gene name, log for manual intervention
                 transcript = None
-
                 
             
             if transcript:
@@ -942,11 +936,22 @@ def nirvana_transcripts(gene_name, verbose=True):
 
                     transcripts.add("\t".join([gff_gene_name, gff_transcript, chrom, start, end, gff_tag]))
     
-    if verbose:
-        for transcript in sorted(transcripts):
+    tx_dict = {}
+    for transcript in sorted(transcripts):
+        
+        if verbose:
             print transcript
+        
+        gene_symbol, tx, chrom, start, end, canonical = transcript.split("\t")
+        tx_dict[tx] = { "gene_symbol":gene_symbol,
+                        "chrom":chrom,
+                        "start":start,
+                        "end":end,
+                        "canonical":bool(canonical) }
     
-    return [x.split("\t")[1] for x in transcripts]
+
+
+    return tx_dict
 
 @begin.start
 def main():
