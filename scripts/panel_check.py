@@ -905,6 +905,13 @@ def nirvana_transcripts(gene_name, verbose=True):
     
     return [x.split("\t")[1] for x in transcripts]
 
+@begin.subcommand
+def get_HGMD_transcript(gene_name):
+    db = open_ga_db()
+    sql_request = "SELECT refcore FROM hgmd_pro.gene2refseq WHERE hgmdID = (SELECT gene_id FROM hgmd_pro.allgenes WHERE gene = '{}')".format(gene_name)
+    HGMD_transcript = database_query(db, sql_request)
+    return HGMD_transcript
+
 @begin.start
 def main():
     pass
