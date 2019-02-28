@@ -499,6 +499,91 @@ def hilite(string, colour, bold=False):
 def get_username():
     return pwd.getpwuid( os.getuid() )[ 0 ]
 
+def get_nirvana_data_dict():
+    
+    nirvana_dir = get_nirvana_dir()
+    nirvana_gff = os.path.join(nirvana_dir, "Data/Cache/24/GRCh37/GRCh37_RefSeq_24.gff.gz")  # May need tweaking for future versions (which don't use 24)
+    
+    nirvana_tx_dict = {}
+
+    with gzip.open(nirvana_gff) as nir_fh:
+        for line in nir_fh:
+            gff_gene_name = None
+            gff_transcript = None
+            gff_tag = ""
+
+            
+            fields = line.strip().split("\t")
+            record_type = fields[2]
+            if not record_type == "transcript":
+                continue
+            info_field = fields[8]
+            info_fields = info_field.split("; ")
+            for field in info_fields:
+                key, value = field.split(" ")
+            
+                if key == "gene_name":
+                    gff_gene_name = value.replace('"','').upper()
+                elif key == "transcript_id" and value.startswith('"NM_'):
+                    gff_transcript = value.replace('"','')
+                elif key == "tag":
+                    gff_tag = value.replace('"','')
+
+            if gff_gene_name and gff_transcript:
+                chrom = fields[0].replace("chr", "")
+                start, end = fields[3:5]
+                canonical = gff_tag
+
+                nirvana_tx_dict.setdefault(gff_gene_name, {})[gff_transcript] = {   "chrom":chrom,
+                                                                                    "start":start,
+                                                                                    "end":end,
+                                                                                    "canonical":canonical}
+    return nirvana_tx_dict
+    
+
+def get_nirvana_transcripts(gene_symbol, nirvana_transcript_dict):
+    return nirvana_transcript_dict.get(gene_symbol, [])
+
+def select_transcript(gene_symbol, nirvana_transcripts):
+    
+    transcript = None
+    if not nirvana_transcripts:
+        return transcript
+
+    # If only one transcript in nirvana we have no choice - use that one
+    if len(nirvana_transcripts) == 1:
+        transcript = nirvana_transcripts.keys()[0]
+
+    # If multiple transcripts in nirvana then we need to make make a selection
+    elif len(nirvana_transcripts) > 1:
+
+        # Connect to mariadb and get tx from hgmd_pro.gene2refseq
+        hgmd_transcript = get_HGMD_transcript(gene_symbol, verbose=False)
+        
+        # if HGMD transcript is in nirvana transcripts list, use it
+        for nirvana_transcript in nirvana_transcripts:
+            nirvana_transcript_base, nirvana_transcript_version = nirvana_transcript.split(".")
+            
+            # Match without the .version since nirvana and HGMD may have the same tx but diff versions
+            # Use the version in nirvana
+            if hgmd_transcript == nirvana_transcript_base:
+                transcript = nirvana_transcript
+                break
+
+        # HGMD not in the nirvana list, so we use nirvana canonical
+        else:
+            nirvana_canonicals = [tx for tx,info in nirvana_transcripts.items() if info["canonical"]]
+            if len(nirvana_canonicals) == 1:
+                transcript = nirvana_canonicals[0]
+            else:
+                transcript = None
+
+    else: # no transcripts in nirvana, probably bad gene name, log for manual intervention
+        transcript = None
+    
+    return transcript
+
+
 @begin.subcommand
 def archive_genes2transcripts(genes2transcripts_path=genes2transcripts_path):
     archive_dir = "/mnt/storage/data/NGS/nirvana_genes2transcripts_archive"
@@ -822,6 +907,8 @@ def check_form(form):
     result_map = {True:  "Pass",
                   False: "FAIL"}
 
+    nirvana_data_dict = get_nirvana_data_dict()
+    
     # Iterate through the rows in the form
     for row_index in range(header_row_index+1, nrows-1):
         row = r_sheet.row(row_index)
@@ -832,39 +919,13 @@ def check_form(form):
             gene_symbol = row_values[gene_symbol_column_index]
             
             # Get a list of transcripts available for this gene in the nirvana annotation data
-            nirvana_txs = nirvana_transcripts(gene_symbol)
+            nirvana_txs = nirvana_transcripts(gene_symbol, verbose=False, nirvana_data_dict=nirvana_data_dict)
             
-            # If only one transcript in nirvana we have no choice - use that one
-            if len(nirvana_txs) == 1:
-                transcript = nirvana_txs.keys()[0]
-
-            # If multiple transcripts in nirvana the we need to make make a selection
-            elif len(nirvana_txs) > 1:
-
-                # Connect to mariadb and get tx from hgmd_pro.gene2refseq
-                hgmd_transcript = get_hgmd_transcript(gene+symbol) # Func to do
-                
-                # if HGMD transcript is in nirvana transcripts list, use it
-                for nirvana_transcript in nirvana_transcripts:
-                    nirvana_transcript_base, nirvana_transcript_version = nirvana_transcript.split(".")
-                    
-                    # Match before the .version since nirvana and HMD may have the same tx but diff versions
-                    # Use the version in nirvana
-                    if hgmd_transcript.startswith(nirvana_transcript_base + "."):
-                        transcript = nirvana_transcript
-                        break
-
-                # HGMD not in the nirvana list, so we use nirvana canonical
-                else:
-                    nirvana_canonicals = [tx for tx,info in nirvana_transcripts.items() if info.canonical]
-                    if len(nirvana_canonicals) == 1:
-                        transcript = nirvana_canonicals[0]
-                    else:
-                        transcript = None
-
-            else: # no transcripts in nirvana, probably bad gene name, log for manual intervention
-                transcript = None
-                
+            transcript = select_transcript(gene_symbol, nirvana_txs)
+            
+            print "###", gene_symbol, transcript
+            continue
+            
             # Need to review these checks once previous block is working
             # Esp with regards to setting/changing g2t assignments 
             if transcript:
@@ -908,66 +969,32 @@ def check_form(form):
     wb.save(output_filepath)
 
 @begin.subcommand
-def nirvana_transcripts(gene_name, verbose=True):
+def nirvana_transcripts(gene_name, verbose=True, nirvana_data_dict=None):
+    
     gene_name = gene_name.upper()
-    nirvana_dir = get_nirvana_dir()
-    nirvana_gff = os.path.join(nirvana_dir, "Data/Cache/24/GRCh37/GRCh37_RefSeq_24.gff.gz")  # May need tweaking for future versions (which don't use 24)
-    #nirvana_gff = "/mnt/storage/apps/software/nirvana/2.0.3/Data/Cache/24/GRCh37/GRCh37_RefSeq_24.gff.gz"
-    #hgmd = "/data/gemini/HGMD/20170718/HGMD_PRO_2017.2_hg19.vcf"
-    transcripts = set()
-
-    with gzip.open(nirvana_gff) as nir_fh:
-        for line in nir_fh:
-            gff_gene_name = None
-            gff_transcript = None
-            gff_tag = ""
-
-            if gene_name in line.upper():
-                fields = line.strip().split("\t")
-                record_type = fields[2]
-                if not record_type == "transcript":
-                    continue
-                info_field = fields[8]
-                info_fields = info_field.split("; ")
-                for field in info_fields:
-                    key, value = field.split(" ")
-                
-                    if key == "gene_name":
-                        gff_gene_name = value.replace('"','').upper()
-                    elif key == "transcript_id" and value.startswith('"NM_'):
-                        gff_transcript = value.replace('"','')
-                    elif key == "tag":
-                        gff_tag = value.replace('"','')
-
-                if gff_gene_name == gene_name and gff_transcript:
-                    chrom = fields[0].replace("chr", "")
-                    start, end = fields[3:5]
-                    #print "\t".join([gff_transcript, chrom, start, end, gff_tag])
-
-                    transcripts.add("\t".join([gff_gene_name, gff_transcript, chrom, start, end, gff_tag]))
     
-    tx_dict = {}
-    for transcript in sorted(transcripts):
-        
-        if verbose:
-            print transcript
-        
-        gene_symbol, tx, chrom, start, end, canonical = transcript.split("\t")
-        tx_dict[tx] = { "gene_symbol":gene_symbol,
-                        "chrom":chrom,
-                        "start":start,
-                        "end":end,
-                        "canonical":bool(canonical) }
+    if not nirvana_data_dict:
+        nirvana_data_dict = get_nirvana_data_dict()
+
+    nirvana_transcripts = nirvana_data_dict.get(gene_name, {})
     
+    if verbose:
+        for transcript, transcript_data in nirvana_transcripts.items():
+            print "\t".join([gene_name, transcript, transcript_data["chrom"], transcript_data["start"], transcript_data["end"], transcript_data["canonical"]])
 
-
-    return tx_dict
+    return nirvana_transcripts
 
 @begin.subcommand
-def get_HGMD_transcript(gene_name):
+def get_HGMD_transcript(gene_name, verbose=True):
     db = open_ga_db()
     sql_request = "SELECT refcore FROM hgmd_pro.gene2refseq WHERE hgmdID = (SELECT gene_id FROM hgmd_pro.allgenes WHERE gene = '{}')".format(gene_name)
     HGMD_transcript = database_query(db, sql_request)
+    if HGMD_transcript:
+        HGMD_transcript = HGMD_transcript[0][0]
+    else:
+        HGMD_transcript = None
+    if verbose:
+        print HGMD_transcript
     return HGMD_transcript
 
 @begin.start
