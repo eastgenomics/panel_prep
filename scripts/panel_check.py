@@ -367,9 +367,8 @@ def get_20x_percentage(transcript, run_folder, gene=None, verbose=False):
     sample_depth_files = glob.glob("/mnt/storage/data/NGS/%s/stats/*nirvana_203_5bp.gz" % run_folder)[0:20]
     genes2transcripts_filepath = "/mnt/storage/data/NGS/nirvana_genes2transcripts"
 
-    if transcript2regions(transcript):
-        regions = transcript2regions(transcript)
-    else:
+    regions = transcript2regions(transcript)
+    if not regions:
         return None    
 
     gene_coverage = {"gene":                 gene,  #Done
