@@ -19,6 +19,7 @@ from xlutils.copy import copy
 style = xlwt.XFStyle()
 style.alignment.wrap = 1
 
+gemini_genes_path = "/mnt/storage/data/NGS/gemini_genes.txt"
 genes2transcripts_path = "/mnt/storage/data/NGS/nirvana_genes2transcripts"
 genes2transcripts_log = "/mnt/storage/data/NGS/nirvana_genes2transcripts.log"
 timestamp = datetime.datetime.fromtimestamp(time.time()).strftime('%Y%m%d%H%M%S')
@@ -186,8 +187,9 @@ def get_coverage_stats(transcript, run_folder, fancy=True, verbose=False):
     coverage = {}
 
     db = open_ga_db()
-    regions = get_regions(transcript, db)
     
+    regions = get_regions(transcript, db)
+
     if run_folder.endswith("/"):
         rf_name = os.path.basename(os.path.dirname(run_folder))
     else:
@@ -365,8 +367,11 @@ def get_20x_percentage(transcript, run_folder, gene=None, verbose=False):
     sample_depth_files = glob.glob("/mnt/storage/data/NGS/%s/stats/*nirvana_203_5bp.gz" % run_folder)[0:20]
     genes2transcripts_filepath = "/mnt/storage/data/NGS/nirvana_genes2transcripts"
 
-    regions = transcript2regions(transcript)
-    
+    if transcript2regions(transcript):
+        regions = transcript2regions(transcript)
+    else:
+        return None    
+
     gene_coverage = {"gene":                 gene,  #Done
                      "transcript":           transcript,
                      "chrom":                None,  #Done
@@ -996,6 +1001,86 @@ def get_HGMD_transcript(gene_name, verbose=True):
     if verbose:
         print HGMD_transcript
     return HGMD_transcript
+
+
+@begin.subcommand
+def generate_gene2transcript_table(gene_file = gemini_genes_path, gene2transcript = genes2transcripts_path, cov_threshold = 85):
+    # get every gene in gemini gene file
+    with open(gene_file) as gemini:
+        gemini_genes = [gene.strip() for gene in gemini]
+
+    # get every gene --> transcript dictionnary
+    with open(gene2transcript) as nirvana:
+        gene2transcript_dict = {}
+        for line in nirvana:
+            gene, transcript = line.split()
+            gene2transcript_dict[gene] = transcript
+
+    nirvana_dict = get_nirvana_data_dict()
+
+    # create the table with header
+    table = "{}.out".format(os.path.basename(gene_file))
+    gene2transcript_table = open(table, "w")
+    header = "Gene_symbol\tTranscript\tCoverage(%)\tNirvana_transcript2gene\tNirvana_gene2transcript\tIssues\n"
+    gene2transcript_table.write(header)
+
+    # get every value needed for the table
+    for gene in gemini_genes:
+        nirvana_transcripts = get_nirvana_transcripts(gene, nirvana_dict)
+        assigned_transcript = select_transcript(gene, nirvana_transcripts)
+
+        # calculate coverage
+        percentage = get_20x_percentage(assigned_transcript, "190213_K00178")
+        if percentage:
+            coverage = round(percentage * 100, 2)
+        else:
+            coverage = None       
+ 
+        if assigned_transcript in gene2transcript_dict.values():
+            gene_nirvana = list(gene2transcript_dict.keys())[list(gene2transcript_dict.values()).index(assigned_transcript)]
+        else:
+            gene_nirvana = None
+
+        # get the nirvana transcript from gemini/panel gene
+        if gene in gene2transcript_dict.keys():
+            transcript_nirvana = gene2transcript_dict[gene]
+        else:
+            transcript_nirvana = None
+
+        issues = []
+        # if there's a transcript --> we get at least coverage
+        if assigned_transcript:
+            # coverage check
+            if coverage:
+                if coverage < cov_threshold:
+                    issues.append("coverage")
+            else:
+                issues.append("missing_coverage")
+
+            # nirvana checks
+            if gene_nirvana is None and transcript_nirvana is None:
+                issues.append("G2N_T2N")
+            elif gene_nirvana is not None and transcript_nirvana is None:
+                issues.append("T2N")
+            elif gene_nirvana is None and transcript_nirvana is not None:
+                issues.append("G2N")
+        # if there's no transcript --> no coverage, no gene
+        else:
+            # we get transcript from nirvana's file with the gene name
+            if transcript_nirvana is not None:
+                issues.append("Wrong_gene_name")
+       
+        if issues != []:
+            issues = "+".join(issues)
+        else:
+            issues = None
+
+        written_line = "{}\t{}\t{}\t{}\t{}\t{}\n".format(gene, assigned_transcript, coverage, gene_nirvana, transcript_nirvana, issues)
+        gene2transcript_table.write(written_line)
+    
+    gene2transcript_table.close()
+
+    print "Table generated"
 
 @begin.start
 def main():
