@@ -1,3 +1,5 @@
+#!/usr/bin/python2
+
 import os
 import pwd
 import glob
@@ -34,6 +36,7 @@ def get_nirvana_dir():
 def get_nirvana_gff():
     nirvana_dir = get_nirvana_dir()
     nirvana_gff = os.path.join(nirvana_dir, "Data/Cache/24/GRCh37/GRCh37_RefSeq_24.gff.gz")  # May need tweaking for future versions (which don't use 24)
+    nirvana_gff = glob.glob(pattern)[0]  # May need tweaking for future versions (which don't use 24)
     return nirvana_gff
 
 def check_nirvana_gene_transcript(gene_name, transcript):
