@@ -7,6 +7,7 @@ import gzip
 import shutil
 import subprocess
 import MySQLdb
+import sys
 
 import time
 import datetime
@@ -18,9 +19,12 @@ import xlrd
 import xlwt
 from xlutils.copy import copy
 
+# import md5_refs
+
 style = xlwt.XFStyle()
 style.alignment.wrap = 1
 
+MD5_FOLDER = "/mnt/storage/refs/gemini_md5s/"
 gemini_genes_path = "/mnt/storage/data/NGS/gemini_genes.txt"
 genes2transcripts_path = "/mnt/storage/data/NGS/nirvana_genes2transcripts"
 genes2transcripts_log = "/mnt/storage/data/NGS/nirvana_genes2transcripts.log"
@@ -36,7 +40,6 @@ def get_nirvana_dir():
 def get_nirvana_gff():
     nirvana_dir = get_nirvana_dir()
     nirvana_gff = os.path.join(nirvana_dir, "Data/Cache/24/GRCh37/GRCh37_RefSeq_24.gff.gz")  # May need tweaking for future versions (which don't use 24)
-    nirvana_gff = glob.glob(pattern)[0]  # May need tweaking for future versions (which don't use 24)
     return nirvana_gff
 
 def check_nirvana_gene_transcript(gene_name, transcript):
@@ -706,6 +709,13 @@ def add_to_genes2transcripts(gene_name, transcript, genes2transcripts_path=genes
             print error
             return False
 
+        created = md5_refs.generate_md5_for_file(genes2transcripts_path, MD5_FOLDER)
+
+        if not created:
+            print("md5 file not updated")
+        else:
+            print("md5 file updated")
+
         # Record in log
         username  = get_username()
         command   = 'echo -e "{timestamp}: {username} added {gene_name}\t{transcript}" >> {genes2transcripts_log}'.format(timestamp=timestamp, username=username, gene_name=gene_name, transcript=transcript, genes2transcripts_log=genes2transcripts_log)
@@ -731,15 +741,19 @@ def remove_from_genes2transcripts(gene_name, transcript=None, genes2transcripts_
         for line in lines:
             g2t_fh.write(line)
 
+    created = md5_refs.generate_md5_for_file(genes2transcripts_path, MD5_FOLDER)
+
+    if not created:
+        print("md5 file not updated")
+    else:
+        print("md5 file updated")
+
     # Record in log
     username  = get_username()
     command   = 'echo -e "{timestamp}: {username} removed {gene_name}" >> {genes2transcripts_log}'.format(timestamp=timestamp, username=username, gene_name=gene_name, genes2transcripts_log=genes2transcripts_log)
     if subprocess.check_call(command, shell=True):  # Returns 0 if OK
         print "Unable to log nirvana_genes2transcripts changes"
     return True
-
-    
-   
 
     if transcript_available and (genes2transcripts_message == "Gene and transcript missing from genes2transcripts"):
 
