@@ -19,7 +19,7 @@ import xlrd
 import xlwt
 from xlutils.copy import copy
 
-# import md5_refs
+ import md5_gemini_refs
 
 style = xlwt.XFStyle()
 style.alignment.wrap = 1
@@ -709,7 +709,7 @@ def add_to_genes2transcripts(gene_name, transcript, genes2transcripts_path=genes
             print error
             return False
 
-        created = md5_refs.generate_md5_for_file(genes2transcripts_path, MD5_FOLDER)
+        created = md5_gemini_refs.generate_md5_for_file(genes2transcripts_path, MD5_FOLDER)
 
         if not created:
             print("md5 file not updated")
@@ -741,7 +741,7 @@ def remove_from_genes2transcripts(gene_name, transcript=None, genes2transcripts_
         for line in lines:
             g2t_fh.write(line)
 
-    created = md5_refs.generate_md5_for_file(genes2transcripts_path, MD5_FOLDER)
+    created = md5_gemini_refs.generate_md5_for_file(genes2transcripts_path, MD5_FOLDER)
 
     if not created:
         print("md5 file not updated")
