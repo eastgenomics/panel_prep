@@ -19,7 +19,7 @@ import xlrd
 import xlwt
 from xlutils.copy import copy
 
- import md5_gemini_refs
+import md5_gemini_refs
 
 style = xlwt.XFStyle()
 style.alignment.wrap = 1
