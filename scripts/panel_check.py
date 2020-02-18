@@ -709,7 +709,7 @@ def add_to_genes2transcripts(gene_name, transcript, genes2transcripts_path=genes
             print error
             return False
 
-        created = md5_gemini_refs.generate_md5_for_file(genes2transcripts_path, MD5_FOLDER)
+        created = md5_gemini_refs.generate_md5_for_file(genes2transcripts_path, os.path.join(MD5_FOLDER, os.path.basename(genes2transcripts_path)+".md5"))
 
         if not created:
             print("md5 file not updated")
@@ -741,7 +741,7 @@ def remove_from_genes2transcripts(gene_name, transcript=None, genes2transcripts_
         for line in lines:
             g2t_fh.write(line)
 
-    created = md5_gemini_refs.generate_md5_for_file(genes2transcripts_path, MD5_FOLDER)
+    created = md5_gemini_refs.generate_md5_for_file(genes2transcripts_path, os.path.join(MD5_FOLDER, os.path.basename(genes2transcripts_path)+".md5"))
 
     if not created:
         print("md5 file not updated")
